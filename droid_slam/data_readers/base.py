@@ -1,9 +1,7 @@
-
 import numpy as np
 import torch
 import torch.utils.data as data
 import torch.nn.functional as F
-
 import csv
 import os
 import cv2
@@ -17,43 +15,74 @@ from .augmentation import RGBDAugmentor
 from .rgbd_utils import *
 
 class RGBDDataset(data.Dataset):
-    def __init__(self, name, datapath, n_frames=4, crop_size=[384,512], fmin=8.0, fmax=75.0, do_aug=True):
+    def __init__(self, name, datapath, n_frames=4, crop_size=[384,512], fmin=10.0, fmax=75.0, aug=True, sample=True):
         """ Base class for RGBD dataset """
         self.aug = None
         self.root = datapath
         self.name = name
 
+        self.aug = aug
+        self.sample = sample
+
         self.n_frames = n_frames
         self.fmin = fmin # exclude very easy examples
         self.fmax = fmax # exclude very hard examples
         
-        if do_aug:
+        if self.aug:
             self.aug = RGBDAugmentor(crop_size=crop_size)
 
         # building dataset is expensive, cache so only needs to be performed once
-        cur_path = osp.dirname(osp.abspath(__file__))
-        if not os.path.isdir(osp.join(cur_path, 'cache')):
-            os.mkdir(osp.join(cur_path, 'cache'))
+        # cur_path = osp.dirname(osp.abspath(__file__))
+        if not os.path.isdir('datasets'):
+            os.mkdir('datasets')
         
-        cache_path = osp.join(cur_path, 'cache', '{}.pickle'.format(self.name))
-
-        if osp.isfile(cache_path):
-            scene_info = pickle.load(open(cache_path, 'rb'))[0]
+        if "TartanAir" == self.name:
+            self.scene_info = \
+            pickle.load(open('datasets/TartanAir.pickle', 'rb'))[0]
         else:
-            scene_info = self._build_dataset()
-            with open(cache_path, 'wb') as cachefile:
-                pickle.dump((scene_info,), cachefile)
+            cache_path = osp.join('datasets', '{}.pickle'.format(self.name))
+            if osp.isfile(cache_path):
+                self.scene_info = pickle.load(open(cache_path, 'rb'))[0]
+            else:
+                self.scene_info = self._build_dataset()
+                with open(cache_path, 'wb') as cachefile:
+                    pickle.dump((self.scene_info,), cachefile)
 
-        self.scene_info = scene_info
         self._build_dataset_index()
-                
+        
+    def get_mean(self):
+        if not os.path.isdir(osp.join('datasets')):
+            os.mkdir(osp.join('datasets'))
+        cache_path = osp.join('datasets', '{}_posesmean.pickle'.format(self.name))
+        if osp.isfile(cache_path):
+            self.scenes2posesmean = pickle.load(open(cache_path, 'rb'))[0]
+        else:
+            scenes2poses_list = {}
+            self.scenes2posesmean = {}
+            for scene in self.scene_info:
+                scene_name = scene.split('/')[-1]
+                if scene_name not in scenes2poses_list:
+                    scenes2poses_list[scene_name] = []
+                scenes2poses_list[scene_name].append(self.scene_info[scene]['poses'][:, :3])
+            for (scene_name, v) in scenes2poses_list.items():
+                scenes2poses_list[scene_name] = np.concatenate(v, axis=0)
+                self.scenes2posesmean[scene_name] = np.array([np.mean(scenes2poses_list[scene_name], axis=0), 
+                                                              np.max(scenes2poses_list[scene_name], axis=0), 
+                                                              np.min(scenes2poses_list[scene_name], axis=0), 
+                                                              ]).astype(np.float32)
+                # print("scene_name", scene_name, self.scenes2posesmean[scene_name])
+            with open(cache_path, 'wb') as cachefile:
+                pickle.dump((self.scenes2posesmean,), cachefile)
+
+
+        
     def _build_dataset_index(self):
         self.dataset_index = []
         for scene in self.scene_info:
             if not self.__class__.is_test_scene(scene):
                 graph = self.scene_info[scene]['graph']
                 for i in graph:
-                    if len(graph[i][0]) > self.n_frames:
+                    if i < len(graph) - 65:
                         self.dataset_index.append((scene, i))
             else:
                 print("Reserving {} for validation".format(scene))
@@ -79,11 +108,6 @@ class RGBDDataset(data.Dataset):
         disps = np.stack(list(map(read_disp, depths)), 0)
         d = f * compute_distance_matrix_flow(poses, disps, intrinsics)
 
-        # uncomment for nice visualization
-        # import matplotlib.pyplot as plt
-        # plt.imshow(d)
-        # plt.show()
-
         graph = {}
         for i in range(d.shape[0]):
             j, = np.where(d[i] < max_flow)
@@ -103,20 +127,50 @@ class RGBDDataset(data.Dataset):
         poses_list = self.scene_info[scene_id]['poses']
         intrinsics_list = self.scene_info[scene_id]['intrinsics']
 
+        # stride = np.random.choice([1,2,3])
+
+        d = np.random.uniform(self.fmin, self.fmax)
+        s = 1
+
         inds = [ ix ]
+
         while len(inds) < self.n_frames:
             # get other frames within flow threshold
-            k = (frame_graph[ix][1] > self.fmin) & (frame_graph[ix][1] < self.fmax)
-            frames = frame_graph[ix][0][k]
 
-            # prefer frames forward in time
-            if np.count_nonzero(frames[frames > ix]):
-                ix = np.random.choice(frames[frames > ix])
+            if self.sample:
+                k = (frame_graph[ix][1] > self.fmin) & (frame_graph[ix][1] < self.fmax)
+                frames = frame_graph[ix][0][k]
+
+                # prefer frames forward in time
+                if np.count_nonzero(frames[frames > ix]):
+                    ix = np.random.choice(frames[frames > ix])
+
+                elif ix + 1 < len(images_list):
+                    ix = ix + 1
+
+                elif np.count_nonzero(frames):
+                    ix = np.random.choice(frames)
+
+            else:
+                i = frame_graph[ix][0].copy()
+                g = frame_graph[ix][1].copy()
+
+                g[g > d] = -1
+                if s > 0:
+                    g[i <= ix] = -1
+                else:
+                    g[i >= ix] = -1
+
+                if len(g) > 0 and np.max(g) > 0:
+                    ix = i[np.argmax(g)]
+                else:
+                    if ix + s >= len(images_list) or ix + s < 0:
+                        s *= -1
+
+                    ix = ix + s
             
-            elif np.count_nonzero(frames):
-                ix = np.random.choice(frames)
-
             inds += [ ix ]
+
 
         images, depths, poses, intrinsics = [], [], [], []
         for i in inds:
@@ -137,17 +191,16 @@ class RGBDDataset(data.Dataset):
         poses = torch.from_numpy(poses)
         intrinsics = torch.from_numpy(intrinsics)
 
-        if self.aug is not None:
+        if self.aug:
             images, poses, disps, intrinsics = \
                 self.aug(images, poses, disps, intrinsics)
 
-        # scale scene
-        if len(disps[disps>0.01]) > 0:
-            s = disps[disps>0.01].mean()
-            disps = disps / s
-            poses[...,:3] *= s
-
-        return images, poses, disps, intrinsics 
+        # normalize depth
+        s = .7 * torch.quantile(disps, .98)
+        disps = disps / s
+        poses[...,:3] *= s
+        # scene_name = scene_id.split('/')[-1]
+        return images, poses, disps, intrinsics#, s, scene_name, self.scenes2posesmean[scene_name]
 
     def __len__(self):
         return len(self.dataset_index)
