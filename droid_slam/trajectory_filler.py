@@ -39,6 +39,12 @@ class PoseTrajectoryFiller:
         """ features for correlation volume """
         return self.fnet(image)
 
+    @autocast(enabled=True)
+    def __foundation_encoder(self, image):
+        """ features for correlation volume """
+        feat_pretrained = self.encoder(image)
+        return feat_pretrained
+
     def __fill(self, tstamps, images, intrinsics):
         """ fill operator """
 
@@ -66,7 +72,8 @@ class PoseTrajectoryFiller:
 
         # extract features (no need for context features)
         inputs = inputs.sub_(self.MEAN).div_(self.STDV)
-        fmap = self.__feature_encoder(inputs)
+        feat_pretrained = self.__foundation_encoder(inputs)
+        fmap = self.__feature_encoder(inputs, feat_pretrained)
 
         self.video.counter.value += M
         self.video[N:N+M] = (tt, images[:,0], Gs.data, 1, None, intrinsics / 8.0, fmap)

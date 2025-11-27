@@ -1,3 +1,6 @@
+CUDA_VISIBLE_DEVICES="7" python train.py --gpus 1 --name testflow --ckpt ./droid.pth
 
 
-python train_waft.py
+CUDA_VISIBLE_DEVICES="7" python evaluation_scripts_waft/validate_tartanair.py \
+--weights /media/v100_2t/Projects/20251006foundationslam/DROID-SLAMWAFT/checkpoints/251126droidwaft_030000.pth
+

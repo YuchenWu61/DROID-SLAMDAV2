@@ -16,7 +16,7 @@ import geom.projective_ops as pops
 from geom.graph_utils import graph_to_edge_list, keyframe_indicies
 
 from torch_scatter import scatter_mean
-from model.backbone.dinov3 import DinoV3Feature
+# from model.backbone.dinov3 import DinoV3Feature
 from model.backbone.waftv2_dav2 import DepthAnythingFeature
 
 def cvx_upsample(data, mask):
@@ -169,7 +169,7 @@ class DroidNet(nn.Module):
         std = torch.as_tensor([0.229, 0.224, 0.225], device=images.device)
         images = images.sub_(mean[:, None, None]).div_(std[:, None, None])
 
-        feat_pretrained = self.encoder((images+0.5)/2)
+        feat_pretrained = self.encoder(images)
 
         fmaps = self.fnet(images, feat_pretrained)
         net = self.cnet(images, feat_pretrained)

@@ -55,7 +55,16 @@ def train(gpu, args):
     model = DDP(model, device_ids=[gpu], find_unused_parameters=False)
 
     if args.ckpt is not None:
-        model.load_state_dict(torch.load(args.ckpt))
+        if "droid.pth" in args.ckpt:
+            droid_state_dict = torch.load(args.ckpt, map_location='cpu')
+            droid_state_dict["module.update.weight.2.weight"] = droid_state_dict["module.update.weight.2.weight"][:2]
+            droid_state_dict["module.update.weight.2.bias"] = droid_state_dict["module.update.weight.2.bias"][:2]
+            droid_state_dict["module.update.delta.2.weight"] = droid_state_dict["module.update.delta.2.weight"][:2]
+            droid_state_dict["module.update.delta.2.bias"] = droid_state_dict["module.update.delta.2.bias"][:2]
+            model.load_state_dict(droid_state_dict)
+            del droid_state_dict
+        else:
+            model.load_state_dict(torch.load(args.ckpt))
 
     # fetch dataloader
     db = dataset_factory(['tartan'], datapath=args.datapath, n_frames=args.n_frames, fmin=args.fmin, fmax=args.fmax)
@@ -182,6 +191,6 @@ if __name__ == '__main__':
     args.world_size = args.gpus
 
     os.environ['MASTER_ADDR'] = 'localhost'
-    os.environ['MASTER_PORT'] = '12356'
+    os.environ['MASTER_PORT'] = '12357'
     mp.spawn(train, nprocs=args.gpus, args=(args,))
 

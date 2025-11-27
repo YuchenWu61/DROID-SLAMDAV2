@@ -105,8 +105,12 @@ def flow_loss(Ps, disps, poses_est, disps_est, intrinsics, graph, gamma=0.9):
         w = gamma ** (n - i - 1)
         coords1, val1 = projective_transform(poses_est[i], disps_est[i], intrinsics, ii, jj)
 
+        coords1_mask = (coords1[:, :, :, :, 0] >= 0).float()*(coords1[:, :, :, :, 0] < coords1.shape[3]).float()*(coords1[:, :, :, :, 1] >= 0).float()*(coords1[:, :, :, :, 1] < coords1.shape[2]).float()
+        # print("coords1.shape, disps_est[i].shape", coords1.shape, disps_est[i].shape, coords1_mask.shape)
+        v_wh = coords1_mask*0.5 + 0.5
         v = (val0 * val1).squeeze(dim=-1)
-        epe = v * (coords1 - coords0).norm(dim=-1)
+        # print("v_vmask", v.shape)
+        epe = v_wh * v * (coords1 - coords0).norm(dim=-1)
         flow_loss += w * epe.mean()
 
     epe = epe.reshape(-1)[v.reshape(-1) > 0.5]

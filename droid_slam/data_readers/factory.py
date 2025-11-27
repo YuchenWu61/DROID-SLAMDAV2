@@ -5,7 +5,7 @@ import os.path as osp
 
 # RGBD-Dataset
 from .tartan import TartanAir
-
+from .tartanairv2 import TartanAirV2
 from .stream import ImageStream
 from .stream import StereoStream
 from .stream import RGBDStream
@@ -19,7 +19,8 @@ def dataset_factory(dataset_list, **kwargs):
 
     from torch.utils.data import ConcatDataset
 
-    dataset_map = { 'tartan': (TartanAir, ) }
+    dataset_map = { 'tartan': (TartanAir, ) ,
+                   'tartanairv2': (TartanAirV2, ) ,}
     db_list = []
     for key in dataset_list:
         # cache datasets for faster future loading
